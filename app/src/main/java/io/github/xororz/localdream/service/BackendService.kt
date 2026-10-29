@@ -399,7 +399,9 @@ class BackendService : Service() {
                     targetLib.setExecutable(true, true)
                 }
                 Log.i(TAG, "QNN libraries prepared in runtime directory")
-                probeHtpPlatform()
+                if (Model.isQualcommDevice() || android.os.Build.MANUFACTURER.contains("PICO", true)) {
+                    probeHtpPlatform()
+                }
 
                 // The DiT engine's Hexagon skels share this directory: it is
                 // already on the DSP search path, and they are only useful on

@@ -73,8 +73,7 @@ inline int probeHtpPlatform(const std::string& libDir) {
     for (uint32_t i = 0; i < info->v1.numHwDevices; ++i) {
       const auto& hw = info->v1.hwDevices[i];
       if (hw.version != QNN_DEVICE_HARDWARE_DEVICE_INFO_VERSION_1) continue;
-      auto* ext = reinterpret_cast<const QnnHtpDevice_DeviceInfoExtension_t*>(
-          hw.v1.deviceInfoExtension);
+      const auto* ext = hw.v1.deviceInfoExtension;
       if (!ext || ext->devType != QNN_HTP_DEVICE_TYPE_ON_CHIP) continue;
       devices.push_back({
           {"soc_id", ext->onChipDevice.socModel},
