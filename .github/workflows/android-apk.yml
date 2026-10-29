@@ -1,0 +1,126 @@
+name: Android APK / QNN
+
+on:
+  pull_request:
+    branches: [master]
+  push:
+    branches:
+      - master
+      - "feat/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-\${{ github.workflow }}-\${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pico-apk:
+    name: Android arm64 + QNN / tests / APK
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      QAIRT_VERSION: "2.51.0.260929"
+      NDK_VERSION: "29.0.14206865"
+      CMAKE_BUILD_PARALLEL_LEVEL: "2"
+      GRADLE_OPTS: "-Dorg.gradle.workers.max=2 -Dorg.gradle.parallel=false"
+
+    steps:
+      - name: Checkout source and native submodules
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Cache Gradle dependencies
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android API 37 and NDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager --install "platforms;android-37" "build-tools;37.0.0" "ndk;$NDK_VERSION"
+          echo "ANDROID_NDK_ROOT=$ANDROID_HOME/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
+          test -f "$ANDROID_HOME/ndk/$NDK_VERSION/build/cmake/android.toolchain.cmake"
+          df -h .
+
+      - name: Run Kotlin / Android unit tests
+        shell: bash
+        run: ./gradlew --no-daemon --stacktrace :app:testBasicDebugUnitTest
+
+      - name: Download Qualcomm AI Runtime SDK (matching model runtime)
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 4 --retry-delay 5 \
+            --output "$RUNNER_TEMP/qairt.zip" \
+            "https://softwarecenter.qualcomm.com/api/download/software/sdks/Qualcomm_AI_Runtime_Community/All/$QAIRT_VERSION/v$QAIRT_VERSION.zip"
+          python3 scripts/ci/extract_qairt.py \
+            --archive "$RUNNER_TEMP/qairt.zip" \
+            --sdk-version "$QAIRT_VERSION" \
+            --destination "$RUNNER_TEMP/qairt-sdk"
+          echo "QNN_SDK_ROOT=$RUNNER_TEMP/qairt-sdk" >> "$GITHUB_ENV"
+          rm -f "$RUNNER_TEMP/qairt.zip"
+          df -h .
+
+      - name: Compile native stable_diffusion_core and stage QNN runtime
+        shell: bash
+        working-directory: app/src/main/cpp
+        run: |
+          set -euo pipefail
+          bash ./build.sh
+          test -s ../../jniLibs/arm64-v8a/libstable_diffusion_core.so
+          test -s ../../assets/qnnlibs/libQnnHtpV69Stub.so
+          test -s ../../assets/qnnlibs/libQnnHtpV69Skel.so
+
+      - name: Build basic + filter debug APKs
+        shell: bash
+        run: ./gradlew --no-daemon --stacktrace :app:assembleBasicDebug :app:assembleFilterDebug
+
+      - name: Verify APK native runtime and DSP assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          apks=(app/build/outputs/apk/{basic,filter}/debug/*.apk)
+          test "\${#apks[@]}" -eq 2
+          for apk in "\${apks[@]}"; do
+            echo "Validating $apk"
+            unzip -Z1 "$apk" | grep -Fxq "lib/arm64-v8a/libstable_diffusion_core.so"
+            unzip -Z1 "$apk" | grep -Fxq "assets/qnnlibs/libQnnHtp.so"
+            unzip -Z1 "$apk" | grep -Fxq "assets/qnnlibs/libQnnHtpV69Stub.so"
+            unzip -Z1 "$apk" | grep -Fxq "assets/qnnlibs/libQnnHtpV69Skel.so"
+          done
+
+      - name: Upload installable debug APKs
+        uses: actions/upload-artifact@v4
+        with:
+          name: LocalDream-PICO4Ultra-arm64-debug-\${{ github.run_number }}
+          path: |
+            app/build/outputs/apk/basic/debug/*.apk
+            app/build/outputs/apk/filter/debug/*.apk
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+      - name: Upload Kotlin test reports on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-test-report-\${{ github.run_number }}
+          path: app/build/reports/tests/
+          if-no-files-found: ignore
+          retention-days: 7
