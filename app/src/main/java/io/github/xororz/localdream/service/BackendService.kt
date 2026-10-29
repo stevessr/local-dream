@@ -399,6 +399,7 @@ class BackendService : Service() {
                     targetLib.setExecutable(true, true)
                 }
                 Log.i(TAG, "QNN libraries prepared in runtime directory")
+                probeHtpPlatform()
 
                 // The DiT engine's Hexagon skels share this directory: it is
                 // already on the DSP search path, and they are only useful on
@@ -465,6 +466,60 @@ class BackendService : Service() {
         } catch (e: Exception) {
             Log.e(TAG, "Prepare runtime dir failed", e)
             updateState(BackendState.Error("Prepare runtime dir failed: ${e.message}"))
+        }
+    }
+
+    // Query the HTP driver after its bundled libraries have been extracted,
+    // before attempting a model context. This diagnostic never substitutes a
+    // phone's V73 backend for the XR2 Gen 2's V69.
+    private fun probeHtpPlatform() {
+        val executable = File(applicationInfo.nativeLibraryDir, EXECUTABLE_NAME)
+        if (!executable.isFile) return
+        try {
+            val probe = ProcessBuilder(
+                executable.absolutePath,
+                "--probe_htp",
+                "--lib_dir",
+                runtimeDir.absolutePath,
+            ).apply {
+                redirectErrorStream(true)
+                environment()["LD_LIBRARY_PATH"] = listOf(
+                    runtimeDir.absolutePath,
+                    "/system/lib64",
+                    "/vendor/lib64",
+                ).joinToString(":")
+                environment()["ADSP_LIBRARY_PATH"] = listOf(
+                    runtimeDir.absolutePath,
+                    "/vendor/lib/rfsa/adsp",
+                    "/vendor/dsp/cdsp",
+                    "/dsp",
+                ).joinToString(";")
+            }.start()
+            if (!probe.waitFor(8, TimeUnit.SECONDS)) {
+                probe.destroyForcibly()
+                Log.w(TAG, "HTP platform probe timed out")
+                return
+            }
+            val result = probe.inputStream.bufferedReader().use { it.readText() }
+            val line = result.lineSequence().firstOrNull { it.startsWith("HTP_PROBE=") }
+            if (line == null) {
+                Log.w(TAG, "HTP platform probe failed (exit ${probe.exitValue()}): ${result.take(300)}")
+                return
+            }
+            Log.i(TAG, line)
+            // An architecture mismatch is a diagnostic failure, never grounds
+            // for an unsafe override of a chip-specific precompiled context.
+            val payload = org.json.JSONObject(line.removePrefix("HTP_PROBE="))
+            if (payload.optBoolean("ok")) {
+                val devices = payload.optJSONArray("devices")
+                val actualSoc = devices?.optJSONObject(0)?.optInt("soc_id", 0) ?: 0
+                val actualArch = devices?.optJSONObject(0)?.optInt("htp_arch", 0) ?: 0
+                if (actualSoc == 53 && actualArch != 69) {
+                    Log.e(TAG, "Unexpected SXR2230P HTP architecture: $actualArch (expected V69)")
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Unable to query QNN HTP platform: ${e.message}")
         }
     }
 
@@ -628,6 +683,17 @@ class BackendService : Service() {
             val systemLibPathsStr = systemLibPaths.joinToString(":")
             env["LD_LIBRARY_PATH"] = systemLibPathsStr
             env["DSP_LIBRARY_PATH"] = runtimeDir.absolutePath
+            // Qualcomm FastRPC resolves the matching HTP skel via this list;
+            // in particular PICO XR2 Gen 2 uses the V69 skel, NOT V73.
+            // Keep the vendor paths for firmware-side dependencies.
+            if (backendType != "sd15cpu" && backendType != "sdxlmnn") {
+                env["ADSP_LIBRARY_PATH"] = listOf(
+                    runtimeDir.absolutePath,
+                    "/vendor/lib/rfsa/adsp",
+                    "/vendor/dsp/cdsp",
+                    "/dsp",
+                ).joinToString(";")
+            }
             if (ditEngineDir != null) {
                 // ggml-hexagon asks FastRPC for its skel by bare name, so both
                 // the runtime directory holding the skels and the platform

@@ -8,10 +8,11 @@ import org.junit.Test
 
 class XrDeviceSupportTest {
     @Test
-    fun xr2Gen2PartNumbersSelectV73CompatiblePackageFamily() {
-        assertEquals("8gen2", Model.getChipsetSuffix("SXR2230P"))
-        assertEquals("8gen2", Model.getChipsetSuffix("SXR2250P"))
-        assertEquals("8gen2", Model.getChipsetSuffix(" sxr2230p "))
+    fun xr2Gen2SelectsV69PackageCandidateNotV73() {
+        assertEquals("8gen1", Model.getChipsetSuffix("SXR2230P"))
+        assertEquals("8gen1", Model.getChipsetSuffix(" sxr2230p "))
+        // Unknown XR part number: never assume it uses an SXR2230P/V69 binary.
+        assertNull(Model.getChipsetSuffix("SXR2250P"))
     }
 
     @Test
@@ -57,6 +58,14 @@ class XrDeviceSupportTest {
             XrDeviceSupport.resolveSocModel("unknown", "Other", "A9210", "A92Y0", "A9210"),
         )
         assertNull(Model.getChipsetSuffix("SXR2130"))
+    }
+
+    @Test
+    fun unknownXrPartIsNeverReplacedByPicoIdentityFallback() {
+        assertEquals(
+            "SXR2250P",
+            XrDeviceSupport.resolveSocModel("SXR2250P", "Pico", "A9210", "A92Y0", "A9210"),
+        )
     }
 
     @Test

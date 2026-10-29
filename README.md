@@ -33,14 +33,21 @@ If you like it, please consider [sponsor](#-support-this-project) this project.
 The regular `arm64-v8a` Android APK can be sideloaded on **PICO 4 Ultra** and
 **PICO 4 Ultra Enterprise** as a **2D Android app** (not a native OpenXR app).
 
-- Device selection recognizes `SXR2230P` / `SXR2250P` as XR2 Gen 2
-  parts. If Android reports a generic SoC string, a positively identified
-  PICO 4 Ultra (`A9210` / `A92Y0` / product name) uses the XR2 Gen 2
-  profile. Other PICO models are not overridden.
-- SD 1.5 NPU model downloads select the existing `8gen2` package family.
-  The QNN APK build already bundles the Hexagon V73 stub/skeleton runtime,
-  but compatibility of a **precompiled QNN model binary** with PICO firmware
-  must still be validated on an actual headset.
+- Qualcomm lists **SXR2230P as SoC ID 53 / HTP V69**, not V73.
+  A PICO 4 Ultra (`A9210` / `A92Y0` / product name) whose Android SoC
+  identifier is generic falls back to SXR2230P. A different explicit XR
+  part number (including SXR2250P) is preserved but not guessed to be V69.
+- SD1.5 NPU downloads use the existing `8gen1` **V69 candidate** archive
+  rather than the incompatible `8gen2` V73 archive. QNN already packages
+  `libQnnHtpV69Stub.so` / `libQnnHtpV69Skel.so`, selected by its backend.
+  **Matching HTP architecture does not guarantee a precompiled context works
+  on a different SoC.** The published archives target phone chips, not
+  SXR2230P (SoC 53). If rejected by firmware, an SXR2230P-specific
+  `soc_id=53, dsp_arch=v69` QNN export is required.
+- Backend start runs a best-effort `--probe_htp` check using
+  `QnnDevice_getPlatformInfo` to report the real NPU SoC/HTP architecture.
+  If the headset reports an unexpected architecture, avoid forcing a
+  mismatched model or DSP stub; capture the probe output before troubleshooting.
 - SD 1.5 CPU/MNN models remain available if QNN model loading is rejected.
   Do **not** use SDXL NPU models compiled specifically for Snapdragon 8 Gen 3,
   or the SM8750+ DiT engine, as XR2 Gen 2 compatibility is not established.
@@ -55,12 +62,13 @@ adb shell getprop ro.product.manufacturer
 adb shell getprop ro.product.model
 adb shell getprop ro.product.name
 adb logcat -s BackendService:I
+# The service prints HTP_PROBE={...} from QNN when available
 ```
 
 Successful APK installation and catalog visibility are **not** proof of HTP
 inference: validate at least one full generation and inspect backend logs.
 See [PICO's official device specifications](https://developer.picoxr.com/zh/document/discover/xr-devices/)
-and [Qualcomm's XR2 Gen 2 platform information](https://www.qualcomm.com/xr-vr-ar/device-finder/pico-4-ultra).
+and [Qualcomm's SoC/HTP architecture matrix](https://docs.qualcomm.com/nav/home/QNN_general_overview.html?product=924033590759186372).
 
 ## User Guide
 

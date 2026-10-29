@@ -82,10 +82,10 @@ val chipsetModelSuffixes = mapOf(
     "SM8550P" to "8gen2",
     "QCS8550" to "8gen2",
     "QCM8550" to "8gen2",
-    // Snapdragon XR2 Gen 2 family: Hexagon V73. PICO 4 Ultra may report
-    // the XR part number rather than an SM-series phone chip identifier.
-    "SXR2230P" to "8gen2",
-    "SXR2250P" to "8gen2",
+    // Qualcomm QAIRT: SXR2230P = SoC 53 / HTP V69, NOT SM8550's V73.
+    // The 8gen1 archive is a same-architecture *candidate*, not a validated
+    // XR context binary: its final compatibility depends on the target SoC.
+    "SXR2230P" to "8gen1",
     "SM8650" to "8gen2",
     "SM8650P" to "8gen2",
     "SM8750" to "8gen2",
