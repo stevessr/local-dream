@@ -3,6 +3,7 @@ package io.github.xororz.localdream.service
 import android.app.*
 import android.content.Intent
 import android.os.IBinder
+import android.os.Build
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import io.github.xororz.localdream.BuildConfig
@@ -11,6 +12,7 @@ import io.github.xororz.localdream.data.DitEngine
 import io.github.xororz.localdream.data.DitResolution
 import io.github.xororz.localdream.data.Model
 import io.github.xororz.localdream.data.ModelStorage
+import io.github.xororz.localdream.data.XrDeviceSupport
 import java.io.File
 import java.io.IOException
 import java.util.concurrent.Executors
@@ -48,6 +50,10 @@ class BackendService : Service() {
 
     @Volatile
     private var runtimeDirReady = false
+
+    // Populated by QNN's deviceGetPlatformInfo during runtime preparation.
+    // Never use an assumed phone arch when the driver reports otherwise.
+    private var detectedHtp: Pair<Int, Int>? = null
 
     // All backend process management (asset copies, exec, destroy/waitFor)
     // runs on this single thread: jobs stay ordered relative to each other
@@ -516,6 +522,9 @@ class BackendService : Service() {
                 val devices = payload.optJSONArray("devices")
                 val actualSoc = devices?.optJSONObject(0)?.optInt("soc_id", 0) ?: 0
                 val actualArch = devices?.optJSONObject(0)?.optInt("htp_arch", 0) ?: 0
+                if (actualSoc > 0 && actualArch > 0) {
+                    detectedHtp = actualSoc to actualArch
+                }
                 if (actualSoc == 53 && actualArch != 69) {
                     Log.e(TAG, "Unexpected SXR2230P HTP architecture: $actualArch (expected V69)")
                 }
@@ -528,6 +537,27 @@ class BackendService : Service() {
     private fun startBackend(config: BackendConfig): Boolean {
         val modelId = config.modelId
         val backendType = config.backendType
+
+        // Model catalog uses the XR2 Gen 2/V69 candidate archive. When the
+        // QNN driver reports a different SoC or HTP architecture, fail early
+        // instead of attempting to load an unsafe precompiled context.
+        if (backendType == "sd15npu" && XrDeviceSupport.isPico4Ultra(
+                Build.MANUFACTURER, Build.PRODUCT, Build.MODEL, Build.DEVICE,
+            )
+        ) {
+            val probed = detectedHtp
+            if (probed != null && !XrDeviceSupport.isSxr2230pHtp(probed.first, probed.second)) {
+                val error = "PICO HTP is SoC ${probed.first} / V${probed.second}, " +
+                    "not the SXR2230P SoC 53 / V69 model target"
+                Log.e(TAG, error)
+                updateState(BackendState.Error(error, modelId))
+                return false
+            }
+            if (probed == null) {
+                Log.w(TAG, "HTP platform query unavailable: V69 context compatibility is unverified")
+            }
+        }
+
         val width = config.width
         val height = config.height
         Log.i(TAG, "backend start, model: $modelId, resolution: $width×$height")

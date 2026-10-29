@@ -33,12 +33,28 @@ internal object XrDeviceSupport {
         val soc = rawSoc.orEmpty().trim().uppercase(Locale.ROOT)
         if (qualcommPartNumber.containsMatchIn(soc)) return soc
 
-        if (manufacturer?.contains("pico", ignoreCase = true) != true) return soc
+        return if (isPico4Ultra(manufacturer, product, model, device)) {
+            XR2_GEN2_FALLBACK_SOC
+        } else {
+            soc
+        }
+    }
+    // The signed-off Qualcomm QNN target for XR2 Gen 2 (SXR2230P).
+    // Check both fields: an HTP architecture match does not imply that a
+    // context binary compiled for a different SoC can be loaded safely.
+    fun isSxr2230pHtp(socId: Int, htpArch: Int): Boolean = socId == 53 && htpArch == 69
 
-        val isPico4Ultra = sequenceOf(product, model, device)
+    fun isPico4Ultra(
+        manufacturer: String?,
+        product: String?,
+        model: String?,
+        device: String?,
+    ): Boolean {
+        if (manufacturer?.contains("pico", ignoreCase = true) != true) return false
+        return sequenceOf(product, model, device)
             .filterNotNull()
             .map { it.trim().uppercase(Locale.ROOT).replace(Regex("\\s+"), " ") }
             .any { it in pico4UltraIdentifiers || it.removePrefix("PICO ") in pico4UltraIdentifiers }
-        return if (isPico4Ultra) XR2_GEN2_FALLBACK_SOC else soc
     }
 }
+

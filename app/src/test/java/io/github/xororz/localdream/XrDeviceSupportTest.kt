@@ -69,6 +69,24 @@ class XrDeviceSupportTest {
     }
 
     @Test
+    fun qnnHardwareProbeMustMatchBothSocAndArchitecture() {
+        org.junit.Assert.assertTrue(XrDeviceSupport.isSxr2230pHtp(53, 69))
+        org.junit.Assert.assertFalse(XrDeviceSupport.isSxr2230pHtp(53, 73))
+        org.junit.Assert.assertFalse(XrDeviceSupport.isSxr2230pHtp(36, 69))
+        org.junit.Assert.assertFalse(XrDeviceSupport.isSxr2230pHtp(43, 73))
+    }
+
+    @Test
+    fun picoIdentificationDoesNotMatchOlderPico4() {
+        org.junit.Assert.assertTrue(
+            XrDeviceSupport.isPico4Ultra("PICO", "A9210", "PICO 4 Ultra", "A9210"),
+        )
+        org.junit.Assert.assertFalse(
+            XrDeviceSupport.isPico4Ultra("PICO", "PICO 4", "PICO 4", "PICO 4"),
+        )
+    }
+
+    @Test
     fun existingPhoneChipsetMappingsRemainIntact() {
         assertEquals("8gen2", Model.getChipsetSuffix("SM8550"))
         assertEquals("8gen1", Model.getChipsetSuffix("SM8450"))
