@@ -28,6 +28,40 @@ If you like it, please consider [sponsor](#-support-this-project) this project.
 >
 > You can join our [telegram group](https://t.me/local_dream) for discussion or help with testing.
 
+## PICO 4 Ultra (Snapdragon XR2 Gen 2)
+
+The regular `arm64-v8a` Android APK can be sideloaded on **PICO 4 Ultra** and
+**PICO 4 Ultra Enterprise** as a **2D Android app** (not a native OpenXR app).
+
+- Device selection recognizes `SXR2230P` / `SXR2250P` as XR2 Gen 2
+  parts. If Android reports a generic SoC string, a positively identified
+  PICO 4 Ultra (`A9210` / `A92Y0` / product name) uses the XR2 Gen 2
+  profile. Other PICO models are not overridden.
+- SD 1.5 NPU model downloads select the existing `8gen2` package family.
+  The QNN APK build already bundles the Hexagon V73 stub/skeleton runtime,
+  but compatibility of a **precompiled QNN model binary** with PICO firmware
+  must still be validated on an actual headset.
+- SD 1.5 CPU/MNN models remain available if QNN model loading is rejected.
+  Do **not** use SDXL NPU models compiled specifically for Snapdragon 8 Gen 3,
+  or the SM8750+ DiT engine, as XR2 Gen 2 compatibility is not established.
+- VR thermal/power limits and the headset's graphics workload may reduce
+  inference speed. Start with 512×512 SD 1.5 and only scale up after testing.
+
+To diagnose the SoC identity and QNN initialization on the headset:
+
+```sh
+adb shell getprop ro.soc.model
+adb shell getprop ro.product.manufacturer
+adb shell getprop ro.product.model
+adb shell getprop ro.product.name
+adb logcat -s BackendService:I
+```
+
+Successful APK installation and catalog visibility are **not** proof of HTP
+inference: validate at least one full generation and inspect backend logs.
+See [PICO's official device specifications](https://developer.picoxr.com/zh/document/discover/xr-devices/)
+and [Qualcomm's XR2 Gen 2 platform information](https://www.qualcomm.com/xr-vr-ar/device-finder/pico-4-ultra).
+
 ## User Guide
 
 For certain reasons, all guides and documentation have been moved to [Guide Site](https://ld-guide.chino.icu).
