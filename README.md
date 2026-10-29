@@ -73,21 +73,21 @@ and [Qualcomm's SoC/HTP architecture matrix](https://docs.qualcomm.com/nav/home/
 ## GitHub Actions: build Android APKs
 
 The [Android APK / QNN workflow](.github/workflows/android-apk.yml)
-runs on pull requests to \`master\`, pushes to \`master\` and feature branches,
+runs on pull requests to `master`, pushes to `master` and feature branches,
 or manually after this workflow has been merged into the default branch.
 
 The workflow checks out native submodules, runs Kotlin unit tests, downloads
 the public **QAIRT 2.51.0.260929** SDK directly from Qualcomm, extracts only
-the files used for compilation, cross-compiles the \`arm64-v8a\` C++ QNN/MNN
+the files used for compilation, cross-compiles the `arm64-v8a` C++ QNN/MNN
 core, and builds both **basicDebug** and **filterDebug** APKs. It checks
 that the APK includes the native core and **V69** HTP stub/skeleton.
 
 The finished APKs are attached to the successful Actions run as a
-\`LocalDream-PICO4Ultra-arm64-debug-*\` artifact. They use the standard
+`LocalDream-PICO4Ultra-arm64-debug-*` artifact. They use the standard
 Android **debug signing key**, not a production release key.
 
 **Build scope:** These PICO/SD1.5 artifacts do **not** build or bundle the
-SM8750+ DiT engine (\`libdit_engine.so\`). That optional native module
+SM8750+ DiT engine (`libdit_engine.so`). That optional native module
 requires the separate Hexagon SDK and targets newer SoCs. QNN SDK files
 must be used under Qualcomm's terms and are not committed to this repository.
 

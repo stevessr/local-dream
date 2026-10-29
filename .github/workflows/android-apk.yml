@@ -28,10 +28,9 @@ jobs:
       GRADLE_OPTS: "-Dorg.gradle.workers.max=2 -Dorg.gradle.parallel=false"
 
     steps:
-      - name: Checkout source and native submodules
+      - name: Checkout project sources
         uses: actions/checkout@v4
         with:
-          submodules: recursive
           fetch-depth: 1
 
       - name: Set up Java 17
@@ -60,6 +59,15 @@ jobs:
       - name: Run Kotlin / Android unit tests
         shell: bash
         run: ./gradlew --no-daemon --stacktrace :app:testBasicDebugUnitTest
+
+      # Validate the repo's official Gradle wrapper before bringing in vendor
+      # submodules (some third-party examples contain unverifiable wrapper jars).
+      - name: Checkout pinned native submodules
+        shell: bash
+        run: |
+          set -euo pipefail
+          git submodule sync --recursive
+          git submodule update --init --recursive --depth=1
 
       - name: Download Qualcomm AI Runtime SDK (matching model runtime)
         shell: bash
