@@ -952,7 +952,7 @@ fun ModelListScreen(navController: NavController, modifier: Modifier = Modifier)
                             val showUpscaleEntry = if (remoteActive) {
                                 remoteRepository.upscalerPaths.isNotEmpty()
                             } else {
-                                Model.isQualcommDevice()
+                                Model.isDeviceSupported()
                             }
                             if (showUpscaleEntry) {
                                 DropdownMenuItem(

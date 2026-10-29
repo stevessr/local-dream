@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "Config.hpp"
+#include "HtpProbe.hpp"
 #include "MnnUtils.hpp"
 #include "Pipeline.hpp"
 #include "PipelineAnima.hpp"
@@ -85,6 +86,7 @@ struct ServerOptions {
   bool anima_seq_dit = false;  // (anima+lowram) never co-resident DiT halves
   bool upscaler_mode = false;
   bool convert_mode = false;
+  bool probe_htp = false;
   // Run all three DiT modules on the Hexagon NPU. The Android catalog only
   // exposes these models on the SM8750-and-newer devices validated upstream.
   std::string dit_backend = "diffusion=HTP0,te=HTP0,vae=HTP0";
@@ -122,6 +124,7 @@ static void showHelp() {
          "zimage/klein/qwen21/krea2turbo "
          "(DiT engine)\n"
          "  --upscaler_mode        Upscale-only server, no diffusion model\n"
+         "  --probe_htp            Query real QNN HTP SoC ID and architecture\\n"
          "  --convert <dir>        Convert model.safetensors in <dir> to MNN "
          "and exit\n"
          "\n"
@@ -175,6 +178,7 @@ static ServerOptions processCommandLine(int argc, char **argv) {
     OPT_CONVERT_CLIP_SKIP_2,
     OPT_PATCH,
     OPT_UPSCALER_MODE,
+    OPT_PROBE_HTP,
     OPT_LOWRAM,
     OPT_ANIMA_SEQ_DIT,
     OPT_LOG_LEVEL
@@ -195,6 +199,7 @@ static ServerOptions processCommandLine(int argc, char **argv) {
       {"clip_skip_2", pal::no_argument, NULL, OPT_CONVERT_CLIP_SKIP_2},
       {"patch", pal::required_argument, NULL, OPT_PATCH},
       {"upscaler_mode", pal::no_argument, NULL, OPT_UPSCALER_MODE},
+      {"probe_htp", pal::no_argument, NULL, OPT_PROBE_HTP},
       {"lowram", pal::no_argument, NULL, OPT_LOWRAM},
       {"anima_seq_dit", pal::no_argument, NULL, OPT_ANIMA_SEQ_DIT},
       {"log_level", pal::required_argument, NULL, OPT_LOG_LEVEL},
@@ -255,6 +260,9 @@ static ServerOptions processCommandLine(int argc, char **argv) {
       case OPT_UPSCALER_MODE:
         opts.upscaler_mode = true;
         break;
+      case OPT_PROBE_HTP:
+        opts.probe_htp = true;
+        break;
       case OPT_LOWRAM:
         opts.lowram = true;
         break;
@@ -273,7 +281,7 @@ static ServerOptions processCommandLine(int argc, char **argv) {
     }
   }
 
-  if (opts.upscaler_mode || opts.convert_mode) return opts;
+  if (opts.upscaler_mode || opts.convert_mode || opts.probe_htp) return opts;
 
   if (typeStr == "sd15cpu")
     opts.type = ServerOptions::ModelType::kSd15Cpu;
@@ -802,6 +810,10 @@ int main(int argc, char **argv) {
     return EXIT_FAILURE;
   }
   ServerOptions opts = processCommandLine(argc, argv);
+
+  if (opts.probe_htp) {
+    return probeHtpPlatform(opts.lib_dir);
+  }
 
   if (opts.convert_mode) {
     runConvertMode(opts);

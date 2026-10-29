@@ -75,7 +75,8 @@ android {
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
         debug {
-            signingConfig = signingConfigs.getByName("release")
+            // CI and local debug APKs use the standard disposable Android debug key.
+            signingConfig = signingConfigs.getByName("debug")
         }
     }
     compileOptions {

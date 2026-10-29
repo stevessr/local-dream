@@ -64,11 +64,13 @@ object PatchScanner {
     }
 }
 
-private fun getDeviceSoc(): String = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-    Build.SOC_MODEL
-} else {
-    "CPU"
-}
+private fun getDeviceSoc(): String = XrDeviceSupport.resolveSocModel(
+    rawSoc = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) Build.SOC_MODEL else null,
+    manufacturer = Build.MANUFACTURER,
+    product = Build.PRODUCT,
+    model = Build.MODEL,
+    device = Build.DEVICE,
+)
 
 @Immutable
 data class DownloadProgress(val progress: Float, val downloadedBytes: Long, val totalBytes: Long)
@@ -80,6 +82,10 @@ val chipsetModelSuffixes = mapOf(
     "SM8550P" to "8gen2",
     "QCS8550" to "8gen2",
     "QCM8550" to "8gen2",
+    // Qualcomm QAIRT: SXR2230P = SoC 53 / HTP V69, NOT SM8550's V73.
+    // The 8gen1 archive is a same-architecture *candidate*, not a validated
+    // XR context binary: its final compatibility depends on the target SoC.
+    "SXR2230P" to "8gen1",
     "SM8650" to "8gen2",
     "SM8650P" to "8gen2",
     "SM8750" to "8gen2",
@@ -328,10 +334,11 @@ data class Model(
         }
 
         fun getChipsetSuffix(soc: String): String? {
-            if (soc in chipsetModelSuffixes) {
-                return chipsetModelSuffixes[soc]
+            val normalizedSoc = soc.trim().uppercase(java.util.Locale.ROOT)
+            if (normalizedSoc in chipsetModelSuffixes) {
+                return chipsetModelSuffixes[normalizedSoc]
             }
-            if (soc.startsWith("SM")) {
+            if (normalizedSoc.startsWith("SM")) {
                 return "min"
             }
             return null

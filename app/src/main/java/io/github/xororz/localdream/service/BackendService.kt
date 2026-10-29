@@ -3,6 +3,7 @@ package io.github.xororz.localdream.service
 import android.app.*
 import android.content.Intent
 import android.os.IBinder
+import android.os.Build
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import io.github.xororz.localdream.BuildConfig
@@ -11,6 +12,7 @@ import io.github.xororz.localdream.data.DitEngine
 import io.github.xororz.localdream.data.DitResolution
 import io.github.xororz.localdream.data.Model
 import io.github.xororz.localdream.data.ModelStorage
+import io.github.xororz.localdream.data.XrDeviceSupport
 import java.io.File
 import java.io.IOException
 import java.util.concurrent.Executors
@@ -48,6 +50,10 @@ class BackendService : Service() {
 
     @Volatile
     private var runtimeDirReady = false
+
+    // Populated by QNN's deviceGetPlatformInfo during runtime preparation.
+    // Never use an assumed phone arch when the driver reports otherwise.
+    private var detectedHtp: Pair<Int, Int>? = null
 
     // All backend process management (asset copies, exec, destroy/waitFor)
     // runs on this single thread: jobs stay ordered relative to each other
@@ -399,6 +405,9 @@ class BackendService : Service() {
                     targetLib.setExecutable(true, true)
                 }
                 Log.i(TAG, "QNN libraries prepared in runtime directory")
+                if (Model.isQualcommDevice() || android.os.Build.MANUFACTURER.contains("PICO", true)) {
+                    probeHtpPlatform()
+                }
 
                 // The DiT engine's Hexagon skels share this directory: it is
                 // already on the DSP search path, and they are only useful on
@@ -468,9 +477,87 @@ class BackendService : Service() {
         }
     }
 
+    // Query the HTP driver after its bundled libraries have been extracted,
+    // before attempting a model context. This diagnostic never substitutes a
+    // phone's V73 backend for the XR2 Gen 2's V69.
+    private fun probeHtpPlatform() {
+        val executable = File(applicationInfo.nativeLibraryDir, EXECUTABLE_NAME)
+        if (!executable.isFile) return
+        try {
+            val probe = ProcessBuilder(
+                executable.absolutePath,
+                "--probe_htp",
+                "--lib_dir",
+                runtimeDir.absolutePath,
+            ).apply {
+                redirectErrorStream(true)
+                environment()["LD_LIBRARY_PATH"] = listOf(
+                    runtimeDir.absolutePath,
+                    "/system/lib64",
+                    "/vendor/lib64",
+                ).joinToString(":")
+                environment()["ADSP_LIBRARY_PATH"] = listOf(
+                    runtimeDir.absolutePath,
+                    "/vendor/lib/rfsa/adsp",
+                    "/vendor/dsp/cdsp",
+                    "/dsp",
+                ).joinToString(";")
+            }.start()
+            if (!probe.waitFor(8, TimeUnit.SECONDS)) {
+                probe.destroyForcibly()
+                Log.w(TAG, "HTP platform probe timed out")
+                return
+            }
+            val result = probe.inputStream.bufferedReader().use { it.readText() }
+            val line = result.lineSequence().firstOrNull { it.startsWith("HTP_PROBE=") }
+            if (line == null) {
+                Log.w(TAG, "HTP platform probe failed (exit ${probe.exitValue()}): ${result.take(300)}")
+                return
+            }
+            Log.i(TAG, line)
+            // An architecture mismatch is a diagnostic failure, never grounds
+            // for an unsafe override of a chip-specific precompiled context.
+            val payload = org.json.JSONObject(line.removePrefix("HTP_PROBE="))
+            if (payload.optBoolean("ok")) {
+                val devices = payload.optJSONArray("devices")
+                val actualSoc = devices?.optJSONObject(0)?.optInt("soc_id", 0) ?: 0
+                val actualArch = devices?.optJSONObject(0)?.optInt("htp_arch", 0) ?: 0
+                if (actualSoc > 0 && actualArch > 0) {
+                    detectedHtp = actualSoc to actualArch
+                }
+                if (actualSoc == 53 && actualArch != 69) {
+                    Log.e(TAG, "Unexpected SXR2230P HTP architecture: $actualArch (expected V69)")
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Unable to query QNN HTP platform: ${e.message}")
+        }
+    }
+
     private fun startBackend(config: BackendConfig): Boolean {
         val modelId = config.modelId
         val backendType = config.backendType
+
+        // Model catalog uses the XR2 Gen 2/V69 candidate archive. When the
+        // QNN driver reports a different SoC or HTP architecture, fail early
+        // instead of attempting to load an unsafe precompiled context.
+        if (backendType == "sd15npu" && XrDeviceSupport.isPico4Ultra(
+                Build.MANUFACTURER, Build.PRODUCT, Build.MODEL, Build.DEVICE,
+            )
+        ) {
+            val probed = detectedHtp
+            if (probed != null && !XrDeviceSupport.isSxr2230pHtp(probed.first, probed.second)) {
+                val error = "PICO HTP is SoC ${probed.first} / V${probed.second}, " +
+                    "not the SXR2230P SoC 53 / V69 model target"
+                Log.e(TAG, error)
+                updateState(BackendState.Error(error, modelId))
+                return false
+            }
+            if (probed == null) {
+                Log.w(TAG, "HTP platform query unavailable: V69 context compatibility is unverified")
+            }
+        }
+
         val width = config.width
         val height = config.height
         Log.i(TAG, "backend start, model: $modelId, resolution: $width×$height")
@@ -628,6 +715,17 @@ class BackendService : Service() {
             val systemLibPathsStr = systemLibPaths.joinToString(":")
             env["LD_LIBRARY_PATH"] = systemLibPathsStr
             env["DSP_LIBRARY_PATH"] = runtimeDir.absolutePath
+            // Qualcomm FastRPC resolves the matching HTP skel via this list;
+            // in particular PICO XR2 Gen 2 uses the V69 skel, NOT V73.
+            // Keep the vendor paths for firmware-side dependencies.
+            if (backendType != "sd15cpu" && backendType != "sdxlmnn") {
+                env["ADSP_LIBRARY_PATH"] = listOf(
+                    runtimeDir.absolutePath,
+                    "/vendor/lib/rfsa/adsp",
+                    "/vendor/dsp/cdsp",
+                    "/dsp",
+                ).joinToString(";")
+            }
             if (ditEngineDir != null) {
                 // ggml-hexagon asks FastRPC for its skel by bare name, so both
                 // the runtime directory holding the skels and the platform

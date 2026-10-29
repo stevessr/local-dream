@@ -28,6 +28,69 @@ If you like it, please consider [sponsor](#-support-this-project) this project.
 >
 > You can join our [telegram group](https://t.me/local_dream) for discussion or help with testing.
 
+## PICO 4 Ultra (Snapdragon XR2 Gen 2)
+
+The regular `arm64-v8a` Android APK can be sideloaded on **PICO 4 Ultra** and
+**PICO 4 Ultra Enterprise** as a **2D Android app** (not a native OpenXR app).
+
+- Qualcomm lists **SXR2230P as SoC ID 53 / HTP V69**, not V73.
+  A PICO 4 Ultra (`A9210` / `A92Y0` / product name) whose Android SoC
+  identifier is generic falls back to SXR2230P. A different explicit XR
+  part number (including SXR2250P) is preserved but not guessed to be V69.
+- SD1.5 NPU downloads use the existing `8gen1` **V69 candidate** archive
+  rather than the incompatible `8gen2` V73 archive. QNN already packages
+  `libQnnHtpV69Stub.so` / `libQnnHtpV69Skel.so`, selected by its backend.
+  **Matching HTP architecture does not guarantee a precompiled context works
+  on a different SoC.** The published archives target phone chips, not
+  SXR2230P (SoC 53). If rejected by firmware, an SXR2230P-specific
+  `soc_id=53, dsp_arch=v69` QNN export is required.
+- Backend start runs a best-effort `--probe_htp` check using
+  `QnnDevice_getPlatformInfo` to report the real NPU SoC/HTP architecture.
+  If the headset reports an unexpected architecture, avoid forcing a
+  mismatched model or DSP stub; capture the probe output before troubleshooting.
+- SD 1.5 CPU/MNN models remain available if QNN model loading is rejected.
+  Do **not** use SDXL NPU models compiled specifically for Snapdragon 8 Gen 3,
+  or the SM8750+ DiT engine, as XR2 Gen 2 compatibility is not established.
+- VR thermal/power limits and the headset's graphics workload may reduce
+  inference speed. Start with 512×512 SD 1.5 and only scale up after testing.
+
+To diagnose the SoC identity and QNN initialization on the headset:
+
+```sh
+adb shell getprop ro.soc.model
+adb shell getprop ro.product.manufacturer
+adb shell getprop ro.product.model
+adb shell getprop ro.product.name
+adb logcat -s BackendService:I
+# The service prints HTP_PROBE={...} from QNN when available
+```
+
+Successful APK installation and catalog visibility are **not** proof of HTP
+inference: validate at least one full generation and inspect backend logs.
+See [PICO's official device specifications](https://developer.picoxr.com/zh/document/discover/xr-devices/)
+and [Qualcomm's SoC/HTP architecture matrix](https://docs.qualcomm.com/nav/home/QNN_general_overview.html?product=924033590759186372).
+
+## GitHub Actions: build Android APKs
+
+The [Android APK / QNN workflow](.github/workflows/android-apk.yml)
+runs on pull requests to `master`, pushes to `master` and feature branches,
+or manually after this workflow has been merged into the default branch.
+
+The workflow checks out native submodules, runs Kotlin unit tests, downloads
+the public **QAIRT 2.51.0.260929** SDK directly from Qualcomm, extracts only
+the files used for compilation, cross-compiles the `arm64-v8a` C++ QNN/MNN
+core, and builds both **basicDebug** and **filterDebug** APKs. It checks
+that the APK includes the native core and **V69** HTP stub/skeleton.
+
+The finished APKs are attached to the successful Actions run as a
+`LocalDream-PICO4Ultra-arm64-debug-*` artifact. They use the standard
+Android **debug signing key**, not a production release key.
+
+**Build scope:** These PICO/SD1.5 artifacts do **not** build or bundle the
+SM8750+ DiT engine (`libdit_engine.so`). That optional native module
+requires the separate Hexagon SDK and targets newer SoCs. QNN SDK files
+must be used under Qualcomm's terms and are not committed to this repository.
+
 ## User Guide
 
 For certain reasons, all guides and documentation have been moved to [Guide Site](https://ld-guide.chino.icu).
